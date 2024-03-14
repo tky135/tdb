@@ -1,0 +1,9 @@
+# disable all files without an extension
+*
+!/**/
+!*.*
+
+# add other files here
+.vscode
+*.o
+linenoise_example
