@@ -1,8 +1,10 @@
 #include <iostream>
 #include <unistd.h>
 #include <sys/ptrace.h>
+#include <sys/wait.h>
 #include <string>
 #include <sstream>
+#include <vector>
 extern "C" {
     #include "linenoise.h"
 }
@@ -34,10 +36,14 @@ void debugger::run() {
 }
 
 void debugger::handle_command(const std::string& line) {
-    // std::cout << "Handling command: " << line << std::endl;
+    std::cout << "Handling command: " << line << std::endl;
     std::vector<std::string> args = split(line, ' ');
+    std::cout << "Args size: " << args.size() << std::endl;
     std::string command = args[0];
-    if (is_prefix(command, "continue")) {
+    std::cout << "Command: $" << command << "$" << std::endl;
+    std::cout << command.size() << std::endl;
+    if (command.size() == 0) return;
+    else if (is_prefix(command, "continue")) {
         // continue_execution();
         continue_execution();
     } else {
@@ -48,11 +54,14 @@ void debugger::handle_command(const std::string& line) {
 
 std::vector<std::string> debugger::split(const std::string& s, char delim) {
     std::vector<std::string> result;
-    std::stringstream s_stream {s}; // stringstream can be used as input or output whereas istringstream is used for input only
-    std::string substring;
-    while (std::getline(s_stream, substring, delim)) { // read from std::istream, stop at deliminator, return the same istream
-        result.push_back(substring);
+    size_t start = 0;
+    size_t end = s.find(delim);
+    while (end != std::string::npos) {
+        result.push_back(s.substr(start, end - start));
+        start = end + 1;
+        end = s.find(delim, start);
     }
+    result.push_back(s.substr(start, s.size() - start));
     return result;
 
 }
@@ -66,7 +75,7 @@ bool debugger::is_prefix(const std::string& prefix, const std::string& longstrin
 }
 
 void debugger::continue_execution() {
-    ptrace(PT_CONTINUE, m_pid, (caddr_t)1, 0);
+    ptrace(PTRACE_CONT, m_pid, nullptr, nullptr);
     int wait_status;
     waitpid(m_pid, &wait_status, 0);
 }
@@ -83,7 +92,7 @@ int main(int argc, char* argv[]) {
         std::cout << "Child process " << std::endl;
 
         // replace the current process with the executable
-        ptrace(PT_TRACE_ME, 0, nullptr, 0);    // child declares it's being traced by the parent. Other parameters are ommitted
+        ptrace(PTRACE_TRACEME, 0, nullptr, nullptr);    // child declares it's being traced by the parent. Other parameters are ommitted
         execl(prog, prog, nullptr); // the list of arguments are terminated by null. TODO: support execution of programs with arguments
     } else if (pid > 0){
         // parent process

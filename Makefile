@@ -1,6 +1,6 @@
 # compile settings
-CC = clang
-CXX = clang++
+CC = gcc
+CXX = g++
 
 # compile flags
 CFLAGS = -Wall -g
@@ -9,14 +9,18 @@ CXXFLAGS = -Wall -g
 # linker flags
 LDFLAGS = 
 
-all: main
+all: main example
 main: linenoise.o main.o
 	$(CXX) $(LDFLAGS) $^ -o $@
 
-# test program
-test: test.o
+# example program
+example: test.o
 	$(CXX) $(LDFLAGS) $^ -o $@
 	
+# gtest
+gtest: gtest-all.o gtest.o
+	$(CXX) $(LDFLAGS) $^ -o $@
+
 # compile c source files
 %.o: %.c
 	$(CC) $(CFLAGS) -c $< -o $@
@@ -24,6 +28,8 @@ test: test.o
 # compile c++ source files
 %.o: %.cpp
 	$(CXX) $(CXXFLAGS) -std=c++11 -c $< -o $@
-
-
+%.o: %.cc
+	$(CXX) $(CXXFLAGS) -std=c++11 -c $< -o $@
+clean:
+	rm -f *.o main example gtest
 
