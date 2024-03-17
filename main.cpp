@@ -2,13 +2,45 @@
 #include <unistd.h>
 #include <sys/ptrace.h>
 #include <sys/wait.h>
+#include <sys/personality.h>
 #include <string>
 #include <sstream>
 #include <vector>
+#include <unordered_map>
 extern "C" {
     #include "linenoise.h"
 }
+class breakpoint {
+    public:
+        breakpoint(pid_t pid, std::intptr_t addr)
+            : m_pid{pid}, m_addr{addr}, m_enabled{false}, m_saved_word{} {}
+        breakpoint() {}
+        void enable();
+        void disable();
+    private:
+        pid_t m_pid;
+        std::intptr_t m_addr;
+        bool m_enabled;
+        uint64_t m_saved_word;
+};
 
+void breakpoint::enable() {
+    // save original byte
+    m_saved_word = ptrace(PTRACE_PEEKDATA, m_pid, m_addr, nullptr);    // read a word; Linux does not have separate text and data address spaces
+
+    // replace with 0xcc
+    uint64_t data_with_int3 = (m_saved_word & ~0xff) | 0xcc;    // replace the least significant byte with 0xcc
+    // when you read it as int, little endian -> smallest address is least significant
+    ptrace(PTRACE_POKEDATA, m_pid, m_addr, data_with_int3);
+    m_enabled = true;
+}
+
+void breakpoint::disable() {
+    // restore saved bytes
+
+    ptrace(PTRACE_POKEDATA, m_pid, m_addr, m_saved_word);
+    m_enabled = false;
+}
 class debugger {
     public:
         debugger(std::string prog_name, pid_t pid)
@@ -18,9 +50,11 @@ class debugger {
         std::vector<std::string> split(const std::string& s, char delim);
         bool is_prefix(const std::string& s, const std::string& of);
         void continue_execution();
+        void set_breakpoint_at_address(std::intptr_t address);
     private:
         std::string m_prog_name;
         pid_t m_pid;
+        std::unordered_map<std::intptr_t, breakpoint> m_breakpoints;
 };
 
 void debugger::run() {
@@ -36,16 +70,16 @@ void debugger::run() {
 }
 
 void debugger::handle_command(const std::string& line) {
-    std::cout << "Handling command: " << line << std::endl;
     std::vector<std::string> args = split(line, ' ');
-    std::cout << "Args size: " << args.size() << std::endl;
     std::string command = args[0];
-    std::cout << "Command: $" << command << "$" << std::endl;
-    std::cout << command.size() << std::endl;
     if (command.size() == 0) return;
     else if (is_prefix(command, "continue")) {
         // continue_execution();
         continue_execution();
+    } else if (is_prefix(command, "break")) {
+        // TODO: error checking
+        std::intptr_t address = std::stol(args[1].substr(2), 0, 16);  // assuming user entered 0x
+        set_breakpoint_at_address(address);
     } else {
         std::cerr << "not implemented" << std::endl;
     }
@@ -76,8 +110,15 @@ bool debugger::is_prefix(const std::string& prefix, const std::string& longstrin
 
 void debugger::continue_execution() {
     ptrace(PTRACE_CONT, m_pid, nullptr, nullptr);
-    int wait_status;
+    int wait_status; 
     waitpid(m_pid, &wait_status, 0);
+}
+
+void debugger::set_breakpoint_at_address(std::intptr_t address) {
+    std::cout << "Adding breakpoint at address: 0x" << std::hex << address << std::endl;
+    breakpoint bp {m_pid, address};
+    bp.enable();
+    m_breakpoints[address] = bp;    // copy is cheap    // the left-hand side must evaluate to something. Therefore a default constrcutor is needed
 }
 int main(int argc, char* argv[]) {
     if (argc < 2) {
@@ -89,6 +130,7 @@ int main(int argc, char* argv[]) {
     pid_t pid = fork();
     if (pid == 0) {
         // child process
+        personality(ADDR_NO_RANDOMIZE);
         std::cout << "Child process " << std::endl;
 
         // replace the current process with the executable
